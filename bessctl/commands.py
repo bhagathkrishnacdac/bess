@@ -1492,64 +1492,71 @@ def show_port_list(cli, port_names):
             raise cli.CommandError('Port "%s" doest not exist' % port_name)
 
 
+def _get_gate_stats_str(gate, gate_type="gate"):
+    """Format gate statistics with error handling."""
+    try:
+        return 'batches %-11d packets %-12d' % (gate.cnt, gate.pkts)
+    except AttributeError:
+        return 'batches N/A packets N/A'
+    except Exception as e:
+        print(f"Error formatting {gate_type} stats: {e}")
+        return 'batches N/A packets N/A'
+
+def _print_metadata(cli, metadata):
+    """Format and print per-packet metadata fields."""
+    if not metadata:
+        return
+        
+    cli.fout.write('    Per-packet metadata fields:\n')
+    for field in metadata:
+        cli.fout.write('%16s %-6s%2d bytes ' %
+                       (field.name + ':', field.mode, field.size))
+        
+        if field.offset >= 0:
+            cli.fout.write('at offset %d\n' % field.offset)
+        elif field.offset == -1:
+            cli.fout.write('(no downstream reader)\n')
+        elif field.offset == -2:
+            cli.fout.write('(no upstream writer)\n')
+        else:
+            cli.fout.write('\n')
+
 def _show_module(cli, module_name):
+    """Display detailed information about a specific module."""
     info = cli.bess.get_module_info(module_name)
 
     cli.fout.write('  %s::%s(%s)\n' % (info.name, info.mclass, info.desc))
 
-    if len(info.metadata) > 0:
-        cli.fout.write('    Per-packet metadata fields:\n')
-        for field in info.metadata:
-            cli.fout.write('%16s %-6s%2d bytes ' %
-                           (field.name + ':', field.mode, field.size))
+    # 1. Print Metadata (extracted to reduce branching complexity)
+    _print_metadata(cli, info.metadata)
 
-            if field.offset >= 0:
-                cli.fout.write('at offset %d\n' % field.offset)
-            elif field.offset == -1:
-                cli.fout.write('(no downstream reader)\n')
-            elif field.offset == -2:
-                cli.fout.write('(no upstream writer)\n')
-            else:
-                cli.fout.write('\n')
-
-    if len(info.igates) > 0:
+    # 2. Print Input Gates
+    if info.igates:
         cli.fout.write('    Input gates:\n')
         for gate in info.igates:
-            track_str = 'batches N/A packets N/A'
-            try:
-                track_str = 'batches %-11d packets %-12d' % (gate.cnt,
-                                                             gate.pkts)
-            except:
-                pass
+            track_str = _get_gate_stats_str(gate, "input gate")
             cli.fout.write('      %3d: %s %s\t%s\n' %
                            (gate.igate, track_str,
-                            ', '.join('%s:%d ->' % (g.name, g.ogate)
-                                      for g in gate.ogates),
-                            ', '.join('%s::%s' % (h.class_name, h.hook_name)
-                                      for h in gate.gatehooks)))
+                            ', '.join('%s:%d ->' % (g.name, g.ogate) for g in gate.ogates),
+                            ', '.join('%s::%s' % (h.class_name, h.hook_name) for h in gate.gatehooks)))
 
-    if len(info.ogates) > 0:
+    # 3. Print Output Gates
+    if info.ogates:
         cli.fout.write('    Output gates:\n')
         for gate in info.ogates:
-            track_str = 'batches N/A packets N/A'
-            try:
-                track_str = 'batches %-11d packets %-12d' % (gate.cnt,
-                                                             gate.pkts)
-            except:
-                pass
-            cli.fout.write(
-                '      %3d: %s -> %d:%s\t%s\n' %
-                (gate.ogate, track_str, gate.igate, gate.name,
-                 ', '.join("%s::%s" % (h.class_name, h.hook_name)
-                           for h in gate.gatehooks)))
+            track_str = _get_gate_stats_str(gate, "output gate")
+            cli.fout.write('      %3d: %s -> %d:%s\t%s\n' %
+                           (gate.ogate, track_str, gate.igate, gate.name,
+                            ', '.join("%s::%s" % (h.class_name, h.hook_name) for h in gate.gatehooks)))
+
     cli.fout.write('    Deadends: %-12d\n' % (info.deadends,))
 
+    # 4. Print Dump
     if hasattr(info, 'dump'):
         dump_str = pprint.pformat(info.dump, width=74)
         dump_str = '\n      '.join(dump_str.split('\n'))
         cli.fout.write('    Dump:\n')
         cli.fout.write('      %s\n' % dump_str)
-
 
 @cmd('show module', 'Show the status of all modules')
 def show_module_all(cli):
