@@ -67,6 +67,7 @@ except ImportError:
 CONF_EXT = 'bess'
 
 # constants for duplicate literals
+VAR_TYPE_NAME_PLUS = 'name+'
 DONE_MESSAGE = 'Done.\n'
 NONE_MESSAGE = '(none)\n'
 FORMAT_16S_S = '%-16s %s\n'
@@ -557,15 +558,26 @@ def _handle_eval(cli, val, var_type):
             return eval('_parse_map(%s)' % val)
         # pyobj case
         return eval(val) if val.strip() != '' else None
-    except Exception as e:
-        msg = '"map" should be "key=val..."' if var_type == 'map' else \
-              '"pyobj" should be an object in python syntax'
-        raise cli.BindError(msg)
+    except Exception:
+        if var_type == 'map':
+            raise cli.BindError('"map" should be "key=val, key=val, ..."')
+        else:
+            raise cli.BindError(
+                '"pyobj" should be an object in python syntax'
+                ' (e.g., 42, "foo", ["hello", "world"], {"bar": "baz"})')
+
+def _handle_pause_workers(cli, val, var_type):
+    if 'pause'.startswith(val):
+        return 'pause'
+    elif 'no_pause'.startswith(val):
+        return 'no_pause'
+    else:
+        raise cli.BindError('"pause_workers" must be either "pause" or "no_pause"')
 
 def bind_var(cli, var_type, line):
     """Refactored bind_var with Cognitive Complexity < 15."""
     head, remainder = split_var(cli, var_type, line)
-    
+
     # Map types to their respective handler functions
     handler_map = {
         'endis': _handle_endis_dir,
@@ -574,7 +586,7 @@ def bind_var(cli, var_type, line):
         'socket': _handle_numeric,
         'int': _handle_numeric,
         'wid+': _handle_collections,
-        VAR_TYPE_NAME_PLUS: _handle_collections,
+        'name+': _handle_collections,
         'opts': _handle_collections,
         'host': _handle_validation,
         'name': _handle_validation,
@@ -582,11 +594,12 @@ def bind_var(cli, var_type, line):
         'filename': _handle_validation,
         'map': _handle_eval,
         'pyobj': _handle_eval,
+        'pause_workers': _handle_pause_workers,
     }
 
     handler = handler_map.get(var_type)
     val = handler(cli, head, var_type) if handler else head
-    
+
     return val, remainder
 
 
